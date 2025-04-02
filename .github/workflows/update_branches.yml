@@ -18,6 +18,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      administration: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,11 +30,12 @@ jobs:
 
       - name: Authenticate GitHub CLI
         run: |
-          sudo apt update
           echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Run branch update script
-        run: scripts/create-protect-branch.sh testorg8041 "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          chmod +x scripts/create-protect-branch.sh
+          scripts/create-protect-branch.sh testorg8041 "${{ secrets.GITHUB_TOKEN }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PAT: ${{ secrets.PAT }}

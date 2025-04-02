@@ -104,25 +104,28 @@ for repo in "${REPO_NAMES[@]}"; do
         git config user.email "github-actions@github.com"
         git config user.name "GitHub Actions"
         
+        # Create an empty main branch
         if ! git checkout --orphan main; then
             handle_error "Failed to create orphan branch 'main'" && continue
         fi
         
-        # Create an empty commit
-        if ! git commit --allow-empty -m "Initialize main branch"; then
+        # Create a README file if it doesn't exist
+        if [ ! -f "README.md" ]; then
+            echo "# ${repo}" > README.md
+        fi
+        
+        # Add and commit files
+        git add .
+        if ! git commit -m "Initialize main branch"; then
             handle_error "Failed to create initial commit on 'main' branch" && continue
         fi
         
-        # Use GitHub CLI for push instead of direct git push
-        if ! gh repo set-default "$ORG_NAME/$repo"; then
-            handle_error "Failed to set default repository" && continue
-        fi
+        # Push directly using git with credential helper
+        git config credential.helper store
+        echo "https://${GITHUB_TOKEN}@github.com" > ~/.git-credentials
         
-        if ! gh api --method PUT "repos/$ORG_NAME/$repo/contents/.gitkeep" \
-            -f message="Initialize repository" \
-            -f content="$(echo -n "" | base64)" \
-            -f branch="main"; then
-            handle_error "Failed to push to 'main' branch via API" && continue
+        if ! git push -u origin main; then
+            handle_error "Failed to push 'main' branch to remote" && continue
         fi
         
         cd $ORIGINAL_DIR || { handle_error "Failed to return to original directory" && continue; }
@@ -140,19 +143,24 @@ for repo in "${REPO_NAMES[@]}"; do
         
         cd temp-repo || { handle_error "Failed to change directory to temp-repo" && continue; }
         
-        # We'll create the dev branch directly via the GitHub API
-        # First, get the SHA of the latest commit on main
-        MAIN_SHA=$(gh api repos/$ORG_NAME/$repo/git/refs/heads/main --jq '.object.sha')
+        # Configure git identity for this repository only
+        git config user.email "github-actions@github.com"
+        git config user.name "GitHub Actions"
         
-        if [ -z "$MAIN_SHA" ]; then
-            handle_error "Failed to get SHA of main branch" && continue
+        # Make sure we have the main branch
+        git fetch origin main
+        
+        # Create dev branch from main
+        if ! git checkout -b dev origin/main; then
+            handle_error "Failed to create 'dev' branch from 'main'" && continue
         fi
         
-        # Create dev branch reference pointing to the same commit as main
-        if ! gh api --method POST repos/$ORG_NAME/$repo/git/refs \
-            -f ref="refs/heads/dev" \
-            -f sha="$MAIN_SHA"; then
-            handle_error "Failed to create 'dev' branch via API" && continue
+        # Push directly using git with credential helper
+        git config credential.helper store
+        echo "https://${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+        
+        if ! git push -u origin dev; then
+            handle_error "Failed to push 'dev' branch to remote" && continue
         fi
         
         cd $ORIGINAL_DIR || { handle_error "Failed to return to original directory" && continue; }
@@ -161,23 +169,19 @@ for repo in "${REPO_NAMES[@]}"; do
         echo "'dev' branch already exists in $repo."
     fi
 
-    # Set 'dev' as default branch - with better error handling
+    # Set 'dev' as default branch using GitHub CLI
     echo "Setting 'dev' as the default branch for $repo..."
-    if ! gh api --method PATCH repos/$ORG_NAME/$repo -f default_branch="dev"; then
+    if ! gh repo edit $ORG_NAME/$repo --default-branch dev; then
         echo "Warning: Failed to set 'dev' as default branch for $repo. Continuing with other operations."
-        # Let's check if the branch exists
-        if ! gh api repos/$ORG_NAME/$repo/branches/dev &>/dev/null; then
-            echo "Error: 'dev' branch does not exist in remote repository. Cannot set as default."
-        fi
     fi
 
-    # Protect 'main' branch - with better error handling
+    # Protect 'main' branch using GitHub CLI
     echo "Protecting 'main' branch in $repo..."
     if ! gh api --method PUT repos/$ORG_NAME/$repo/branches/main/protection \
         -f required_status_checks='null' \
         -f enforce_admins=true \
         -f required_pull_request_reviews='{"required_approving_review_count":1}' \
-        -f restrictions='null'; then
+        -f restrictions='null' &>/dev/null; then
         echo "Warning: Failed to protect 'main' branch in $repo. Continuing with other operations."
         # Let's check if the branch exists
         if ! gh api repos/$ORG_NAME/$repo/branches/main &>/dev/null; then
@@ -185,18 +189,14 @@ for repo in "${REPO_NAMES[@]}"; do
         fi
     fi
 
-    # Protect 'dev' branch - with better error handling
+    # Protect 'dev' branch using GitHub CLI
     echo "Protecting 'dev' branch in $repo..."
     if ! gh api --method PUT repos/$ORG_NAME/$repo/branches/dev/protection \
         -f required_status_checks='null' \
         -f enforce_admins=true \
         -f required_pull_request_reviews='{"required_approving_review_count":1}' \
-        -f restrictions='null'; then
+        -f restrictions='null' &>/dev/null; then
         echo "Warning: Failed to protect 'dev' branch in $repo. Continuing with other operations."
-        # Let's check if the branch exists
-        if ! gh api repos/$ORG_NAME/$repo/branches/dev &>/dev/null; then
-            echo "Error: 'dev' branch does not exist in remote repository. Cannot apply protection."
-        fi
     fi
 
     echo "Completed processing $repo."
