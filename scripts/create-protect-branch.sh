@@ -62,7 +62,6 @@ if [ ${#REPO_NAMES[@]} -eq 0 ]; then
             fi
         fi
     fi
-    fi
 fi
 
 # Function to handle errors
