@@ -1,11 +1,23 @@
 name: Update Branches
 
+# This workflow requires a Personal Access Token (PAT) with the following scopes:
+# - repo (Full control of private repositories)
+# - admin:org (Full control of orgs and teams, read and write org projects)
+#
+# To set up:
+# 1. Create a PAT at https://github.com/settings/tokens with the scopes above
+# 2. Add the PAT as a repository secret named 'PAT' in your repository settings
+#    (Settings > Secrets and variables > Actions > New repository secret)
+
 on:
   workflow_dispatch: # Allows manual triggering
 
 jobs:
   update-branches:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -17,7 +29,13 @@ jobs:
 
       - name: Authenticate GitHub CLI
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          # Use PAT instead of GITHUB_TOKEN for higher privileges
+          # This PAT needs 'repo' and 'admin:org' scopes
+          echo "${{ secrets.PAT }}" | gh auth login --with-token
+          gh auth status
+        env:
+          # This ensures the script knows it's running in GitHub Actions
+          GITHUB_ACTIONS: true
 
       - name: Run branch update script
         run: scripts/create-protect-branch.sh testorg8041
