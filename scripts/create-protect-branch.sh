@@ -13,8 +13,8 @@ if [ -z "$ORG_NAME" ] || [ -z "$PAT" ]; then
     exit 1
 fi
 
-# Authenticate Git CLI
-echo "$PAT" | gh auth login --with-token
+# Set GH CLI Authentication
+export GH_TOKEN="$PAT"
 
 # Fetch repositories if none are provided
 if [ ${#REPO_NAMES[@]} -eq 0 ]; then
