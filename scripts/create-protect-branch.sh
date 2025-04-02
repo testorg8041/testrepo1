@@ -174,7 +174,13 @@ for repo in "${REPO_NAMES[@]}"; do
     if ! gh repo edit $ORG_NAME/$repo --default-branch dev; then
         echo "Warning: Failed to set 'dev' as default branch for $repo. Continuing with other operations."
     fi
-
+# Check if PAT is available for branch protection (GITHUB_TOKEN doesn't have sufficient permissions)
+if [ -n "$PAT" ]; then
+    # Temporarily use PAT for branch protection
+    TEMP_TOKEN="$GITHUB_TOKEN"
+    GITHUB_TOKEN="$PAT"
+    echo "$PAT" | gh auth login --with-token
+    
     # Protect 'main' branch using GitHub CLI
     echo "Protecting 'main' branch in $repo..."
     if ! gh api --method PUT repos/$ORG_NAME/$repo/branches/main/protection \
@@ -183,10 +189,6 @@ for repo in "${REPO_NAMES[@]}"; do
         -f required_pull_request_reviews='{"required_approving_review_count":1}' \
         -f restrictions='null' &>/dev/null; then
         echo "Warning: Failed to protect 'main' branch in $repo. Continuing with other operations."
-        # Let's check if the branch exists
-        if ! gh api repos/$ORG_NAME/$repo/branches/main &>/dev/null; then
-            echo "Error: 'main' branch does not exist in remote repository. Cannot apply protection."
-        fi
     fi
 
     # Protect 'dev' branch using GitHub CLI
@@ -197,6 +199,15 @@ for repo in "${REPO_NAMES[@]}"; do
         -f required_pull_request_reviews='{"required_approving_review_count":1}' \
         -f restrictions='null' &>/dev/null; then
         echo "Warning: Failed to protect 'dev' branch in $repo. Continuing with other operations."
+    fi
+    
+    # Restore original token
+    GITHUB_TOKEN="$TEMP_TOKEN"
+    echo "$GITHUB_TOKEN" | gh auth login --with-token
+else
+    echo "Note: Skipping branch protection as it requires a Personal Access Token (PAT) with admin permissions."
+    echo "To enable branch protection, add a PAT as a secret named 'PAT' in your repository settings."
+fi
     fi
 
     echo "Completed processing $repo."

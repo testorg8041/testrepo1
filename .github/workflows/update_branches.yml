@@ -18,10 +18,14 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      administration: write
+      # Note: For branch protection, we need to use a PAT with admin access
+      # as GitHub Actions tokens don't have this permission
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        run: |
+          git clone https://github.com/${{ github.repository }}.git .
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
 
       - name: Install GitHub CLI
         run: |
