@@ -204,7 +204,7 @@ else
     echo "Note: Skipping branch protection as it requires a Personal Access Token (PAT) with admin permissions."
     echo "To enable branch protection, add a PAT as a secret named 'PAT' in your repository settings."
 fi
-    fi
+
 
     echo "Completed processing $repo."
     echo "---------------------------------"
