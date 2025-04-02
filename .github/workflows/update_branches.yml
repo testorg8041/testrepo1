@@ -10,12 +10,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check if script exists
-        run: ls -l
-
-      - name: Make script executable
-        run: chmod +x update_branches.sh
-
       - name: Install GitHub CLI
         run: |
           sudo apt update
@@ -26,4 +20,6 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Run branch update script
-        run: ./update_branches.sh testorg8041
+        run: |
+          chmod +x update_branches.sh
+          ./update_branches.sh testorg8041
