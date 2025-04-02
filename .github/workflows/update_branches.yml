@@ -23,8 +23,13 @@ jobs:
         run: echo "GH_TOKEN=${{ secrets.PAT }}" >> $GITHUB_ENV
 
       - name: Run branch update script
-        run: |
-          chmod +x scripts/create-protect-branch.sh
-          scripts/create-protect-branch.sh testorg8041 "${{ secrets.PAT }}"
         env:
           PAT: ${{ secrets.PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "Error: PAT is missing. Please check GitHub secrets."
+            exit 1
+          fi
+          chmod +x scripts/create-protect-branch.sh
+          scripts/create-protect-branch.sh testorg8041 "$PAT"
+      
