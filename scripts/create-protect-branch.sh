@@ -120,11 +120,9 @@ for repo in "${REPO_NAMES[@]}"; do
             handle_error "Failed to create initial commit on 'main' branch" && continue
         fi
         
-        # Push directly using git with credential helper
-        git config credential.helper store
-        echo "https://${GITHUB_TOKEN}@github.com" > ~/.git-credentials
-        
-        if ! git push -u origin main; then
+        # Push directly using token in URL
+        REPO_URL="https://${GITHUB_TOKEN}@github.com/${ORG_NAME}/${repo}.git"
+        if ! git push -u "${REPO_URL}" main; then
             handle_error "Failed to push 'main' branch to remote" && continue
         fi
         
@@ -155,11 +153,9 @@ for repo in "${REPO_NAMES[@]}"; do
             handle_error "Failed to create 'dev' branch from 'main'" && continue
         fi
         
-        # Push directly using git with credential helper
-        git config credential.helper store
-        echo "https://${GITHUB_TOKEN}@github.com" > ~/.git-credentials
-        
-        if ! git push -u origin dev; then
+        # Push directly using token in URL
+        REPO_URL="https://${GITHUB_TOKEN}@github.com/${ORG_NAME}/${repo}.git"
+        if ! git push -u "${REPO_URL}" dev; then
             handle_error "Failed to push 'dev' branch to remote" && continue
         fi
         
