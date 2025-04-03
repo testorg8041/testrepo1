@@ -1,76 +1,66 @@
 #!/bin/bash
 
-# Get organization name and GitHub token from arguments
-ORG_NAME="$1"
-GITHUB_TOKEN="$2"
-shift 2
-REPO_NAMES=("$@") # Remaining arguments are repo names
+# Get Organization Name and PAT Token from arguments
+ORG_NAME=$1
+TOKEN=$2
 
-# Validate required parameters
-if [ -z "$ORG_NAME" ] || [ -z "$GITHUB_TOKEN" ]; then
-    echo "Error: Organization name and GitHub token are required."
-    echo "Usage: $0 <org-name> <github-token> [repo1 repo2 ...]"
-    exit 1
+# Validate inputs
+if [[ -z "$ORG_NAME" || -z "$TOKEN" ]]; then
+  echo "Error: Organization name and PAT token are required."
+  echo "Usage: scripts/create-protect-branch.sh <org-name> <pat-token> [repo1 repo2 ...]"
+  exit 1
 fi
 
-# Authenticate GitHub CLI using the GITHUB_TOKEN
-echo "$GITHUB_TOKEN" | gh auth login --with-token
+# Authenticate GitHub CLI using PAT
+echo $TOKEN | gh auth login --with-token
 
-# If no repo names are provided, fetch all repositories from the organization
-if [ ${#REPO_NAMES[@]} -eq 0 ]; then
-    echo "Fetching repositories from organization: $ORG_NAME..."
-    REPO_NAMES=($(gh repo list "$ORG_NAME" --limit 100 --json name --jq '.[].name' 2>/dev/null))
+# Fetch all repositories in the organization
+echo "Fetching repositories from organization: $ORG_NAME..."
+REPOS=$(gh repo list $ORG_NAME --limit 100 --json name --jq '.[].name')
 
-    if [ ${#REPO_NAMES[@]} -eq 0 ]; then
-        echo "No repositories found in organization $ORG_NAME."
-        exit 0
-    fi
-fi
+# Loop through each repository
+for REPO in $REPOS; do
+  echo "Processing repository: $REPO"
 
-# Loop through all the repositories
-for repo in "${REPO_NAMES[@]}"; do
-    echo "Processing repository: $repo"
+  # Get the default branch of the repository
+  DEFAULT_BRANCH=$(gh repo view "$ORG_NAME/$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')
+  echo "Default branch of $REPO is $DEFAULT_BRANCH"
 
-    # Check if the repository exists
-    if ! gh api repos/$ORG_NAME/$repo &>/dev/null; then
-        echo "Warning: Repository $ORG_NAME/$repo does not exist or access is denied. Skipping."
-        continue
-    fi
+  # Create 'main' branch if it doesn't exist
+  if ! gh api repos/$ORG_NAME/$REPO/branches/main &>/dev/null; then
+    echo "Creating 'main' branch in $REPO..."
+    gh api repos/$ORG_NAME/$REPO/git/refs \
+      -X POST \
+      -f ref="refs/heads/main" \
+      -f sha=$(gh api repos/$ORG_NAME/$REPO/git/ref/heads/$DEFAULT_BRANCH --jq '.object.sha')
+  else
+    echo "'main' branch already exists in $REPO."
+  fi
 
-    # Get the default branch of the repository
-    DEFAULT_BRANCH=$(gh api repos/$ORG_NAME/$repo --jq '.default_branch')
-    echo "Default branch of $repo is $DEFAULT_BRANCH"
+  # Create 'dev' branch if it doesn't exist
+  if ! gh api repos/$ORG_NAME/$REPO/branches/dev &>/dev/null; then
+    echo "Creating 'dev' branch in $REPO..."
+    gh api repos/$ORG_NAME/$REPO/git/refs \
+      -X POST \
+      -f ref="refs/heads/dev" \
+      -f sha=$(gh api repos/$ORG_NAME/$REPO/git/ref/heads/$DEFAULT_BRANCH --jq '.object.sha')
+  else
+    echo "'dev' branch already exists in $REPO."
+  fi
 
-    # Create 'main' branch if it doesn't exist
-    if ! gh api repos/$ORG_NAME/$repo/branches/main &>/dev/null; then
-        echo "Creating 'main' branch in $repo..."
-        gh api -X POST repos/$ORG_NAME/$repo/git/refs -f ref="refs/heads/main" -f sha="$(gh api repos/$ORG_NAME/$repo/git/ref/heads/$DEFAULT_BRANCH --jq '.object.sha')" || {
-            echo "Error: Failed to create 'main' branch for $repo"
-            continue
-        }
-    else
-        echo "'main' branch already exists in $repo."
-    fi
+  # Set 'dev' as the default branch
+  echo "Setting 'dev' as the default branch for $REPO..."
+  RESPONSE=$(gh api repos/$ORG_NAME/$REPO \
+    -X PATCH \
+    -F default_branch="dev" 2>&1)
 
-    # Create 'dev' branch if it doesn't exist
-    if ! gh api repos/$ORG_NAME/$repo/branches/dev &>/dev/null; then
-        echo "Creating 'dev' branch in $repo..."
-        gh api -X POST repos/$ORG_NAME/$repo/git/refs -f ref="refs/heads/dev" -f sha="$(gh api repos/$ORG_NAME/$repo/git/ref/heads/main --jq '.object.sha')" || {
-            echo "Error: Failed to create 'dev' branch for $repo"
-            continue
-        }
-    else
-        echo "'dev' branch already exists in $repo."
-    fi
+  if [[ $RESPONSE == *"Resource not accessible by integration"* ]]; then
+    echo "Warning: Failed to set 'dev' as default branch for $REPO. Check permissions."
+  else
+    echo "'dev' branch is now the default branch for $REPO."
+  fi
 
-    # Set 'dev' as the default branch
-    echo "Setting 'dev' as the default branch for $repo..."
-    gh repo edit "$ORG_NAME/$repo" --default-branch dev || {
-        echo "Warning: Failed to set 'dev' as default branch for $repo."
-    }
-
-    echo "Completed processing $repo."
-    echo "---------------------------------"
+  echo "---------------------------------"
 done
 
 echo "All repositories processed successfully!"
