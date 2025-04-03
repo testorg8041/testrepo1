@@ -1,87 +1,73 @@
 #!/bin/bash
 
-# Get organization name and GitHub token
+# Get organization name and GitHub token from arguments
 ORG_NAME="$1"
-PAT="$2"  # Use PAT instead of GITHUB_TOKEN
+GITHUB_TOKEN="$2"
 shift 2
-REPO_NAMES=("$@") # Remaining arguments are treated as repo names
+REPO_NAMES=("$@") # Remaining arguments are repo names
 
 # Validate required parameters
-if [ -z "$ORG_NAME" ] || [ -z "$PAT" ]; then
-    echo "Error: Organization name and PAT token are required."
-    echo "Usage: $0 <org-name> <pat-token> [repo1 repo2 ...]"
+if [ -z "$ORG_NAME" ] || [ -z "$GITHUB_TOKEN" ]; then
+    echo "Error: Organization name and GitHub token are required."
+    echo "Usage: $0 <org-name> <github-token> [repo1 repo2 ...]"
     exit 1
 fi
 
-# Set GH CLI Authentication
-export GH_TOKEN="$PAT"
+# Authenticate GitHub CLI using the GITHUB_TOKEN
+echo "$GITHUB_TOKEN" | gh auth login --with-token
 
-# Fetch repositories if none are provided
+# If no repo names are provided, fetch all repositories from the organization
 if [ ${#REPO_NAMES[@]} -eq 0 ]; then
     echo "Fetching repositories from organization: $ORG_NAME..."
-    REPO_NAMES=($(gh repo list "$ORG_NAME" --limit 100 --json name --jq '.[].name'))
-    
+    REPO_NAMES=($(gh repo list "$ORG_NAME" --limit 100 --json name --jq '.[].name' 2>/dev/null))
+
     if [ ${#REPO_NAMES[@]} -eq 0 ]; then
         echo "No repositories found in organization $ORG_NAME."
         exit 0
     fi
 fi
 
-# Store original directory
-ORIGINAL_DIR=$(pwd)
-
+# Loop through all the repositories
 for repo in "${REPO_NAMES[@]}"; do
     echo "Processing repository: $repo"
 
-    # Clone the repository using PAT authentication
-    if ! git clone "https://$PAT@github.com/$ORG_NAME/$repo.git" temp-repo --quiet; then
-        echo "Error: Failed to clone repository $ORG_NAME/$repo"
+    # Check if the repository exists
+    if ! gh api repos/$ORG_NAME/$repo &>/dev/null; then
+        echo "Warning: Repository $ORG_NAME/$repo does not exist or access is denied. Skipping."
         continue
     fi
-    
-    cd temp-repo || { echo "Error: Failed to change directory"; exit 1; }
 
-    # Set Git identity
-    git config user.email "github-actions@github.com"
-    git config user.name "GitHub Actions"
+    # Get the default branch of the repository
+    DEFAULT_BRANCH=$(gh api repos/$ORG_NAME/$repo --jq '.default_branch')
+    echo "Default branch of $repo is $DEFAULT_BRANCH"
 
-    # Ensure 'main' branch exists
-    if ! git rev-parse --verify main &>/dev/null; then
-        echo "Creating 'main' branch..."
-        git checkout --orphan main
-        echo "# $repo" > README.md
-        git add README.md
-        git commit -m "Initialize main branch"
-        git push origin main
+    # Create 'main' branch if it doesn't exist
+    if ! gh api repos/$ORG_NAME/$repo/branches/main &>/dev/null; then
+        echo "Creating 'main' branch in $repo..."
+        gh api -X POST repos/$ORG_NAME/$repo/git/refs -f ref="refs/heads/main" -f sha="$(gh api repos/$ORG_NAME/$repo/git/ref/heads/$DEFAULT_BRANCH --jq '.object.sha')" || {
+            echo "Error: Failed to create 'main' branch for $repo"
+            continue
+        }
+    else
+        echo "'main' branch already exists in $repo."
     fi
 
-    # Ensure 'dev' branch exists
-    if ! git rev-parse --verify dev &>/dev/null; then
-        echo "Creating 'dev' branch..."
-        git checkout -b dev
-        git push origin dev
+    # Create 'dev' branch if it doesn't exist
+    if ! gh api repos/$ORG_NAME/$repo/branches/dev &>/dev/null; then
+        echo "Creating 'dev' branch in $repo..."
+        gh api -X POST repos/$ORG_NAME/$repo/git/refs -f ref="refs/heads/dev" -f sha="$(gh api repos/$ORG_NAME/$repo/git/ref/heads/main --jq '.object.sha')" || {
+            echo "Error: Failed to create 'dev' branch for $repo"
+            continue
+        }
+    else
+        echo "'dev' branch already exists in $repo."
     fi
 
-    # Set default branch to 'dev'
-    gh repo edit "$ORG_NAME/$repo" --default-branch dev || echo "Failed to set 'dev' as default branch"
-
-    # Apply branch protection using PAT
-    echo "Applying branch protection..."
-    gh api --method PUT repos/$ORG_NAME/$repo/branches/main/protection \
-        -f required_status_checks='null' \
-        -f enforce_admins=true \
-        -f required_pull_request_reviews='{"required_approving_review_count":1}' \
-        -f restrictions='null' || echo "Failed to protect 'main' branch"
-
-    gh api --method PUT repos/$ORG_NAME/$repo/branches/dev/protection \
-        -f required_status_checks='null' \
-        -f enforce_admins=true \
-        -f required_pull_request_reviews='{"required_approving_review_count":1}' \
-        -f restrictions='null' || echo "Failed to protect 'dev' branch"
-
-    # Cleanup
-    cd "$ORIGINAL_DIR"
-    rm -rf temp-repo
+    # Set 'dev' as the default branch
+    echo "Setting 'dev' as the default branch for $repo..."
+    gh repo edit "$ORG_NAME/$repo" --default-branch dev || {
+        echo "Warning: Failed to set 'dev' as default branch for $repo."
+    }
 
     echo "Completed processing $repo."
     echo "---------------------------------"
