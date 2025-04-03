@@ -63,10 +63,10 @@ for repo in "${REPO_NAMES[@]}"; do
         echo "'dev' branch already exists in $repo."
     fi
 
-    # Set 'dev' as the default branch
+    # Set 'dev' as the default branch using API (Fix for 403 error)
     echo "Setting 'dev' as the default branch for $repo..."
-    gh repo edit "$ORG_NAME/$repo" --default-branch dev || {
-        echo "Warning: Failed to set 'dev' as default branch for $repo."
+    gh api -X PATCH "/repos/$ORG_NAME/$repo" -f default_branch="dev" || {
+        echo "Warning: Failed to set 'dev' as default branch for $repo. Check permissions."
     }
 
     echo "Completed processing $repo."
