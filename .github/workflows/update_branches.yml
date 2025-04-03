@@ -2,6 +2,11 @@ name: Update Branches
 
 on:
   workflow_dispatch:
+    inputs:
+      repositories:
+        description: testrepo1
+        required: false
+        default: ''
 
 jobs:
   update-branches:
@@ -9,6 +14,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,10 +27,17 @@ jobs:
       - name: Authenticate GitHub CLI
         run: |
           echo "${{ secrets.PAT }}" | gh auth login --with-token
+        env:
+          PAT: ${{ secrets.PAT }}
 
-      - name: Run branch update script
+      - name: Run branch update script for selected repositories
         run: |
           chmod +x scripts/create-protect-branch.sh
-          scripts/create-protect-branch.sh testorg8041 "${{ secrets.PAT }}"
+          if [ -z "${{ github.event.inputs.repositories }}" ]; then
+            scripts/create-protect-branch.sh testorg8041 "${{ secrets.PAT }}"
+          else
+            repos=$(echo "${{ github.event.inputs.repositories }}" | tr ',' ' ')
+            scripts/create-protect-branch.sh testorg8041 "${{ secrets.PAT }}" $repos
+          fi
         env:
           PAT: ${{ secrets.PAT }}

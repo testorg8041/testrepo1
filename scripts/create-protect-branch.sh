@@ -9,33 +9,42 @@ fi
 
 ORG_NAME="$1"
 PAT_TOKEN="$2"
+shift 2
+REPOS=("$@")  # Store remaining arguments as repositories
 
 # Authenticate with GitHub CLI using PAT
+echo "Authenticating with GitHub CLI..."
 echo "$PAT_TOKEN" | gh auth login --with-token
 
-# Fetch repositories
-echo "Fetching repositories from organization: $ORG_NAME..."
-REPOS=$(gh repo list "$ORG_NAME" --limit 100 --json name --jq '.[].name')
-
-if [ -z "$REPOS" ]; then
-    echo "No repositories found in organization: $ORG_NAME."
+# Validate authentication
+if ! gh auth status &>/dev/null; then
+    echo "Error: Authentication failed. Check your PAT token permissions."
     exit 1
+fi
+
+# Fetch all repositories if none were provided
+if [ "${#REPOS[@]}" -eq 0 ]; then
+    echo "Fetching all repositories from organization: $ORG_NAME..."
+    mapfile -t REPOS < <(gh repo list "$ORG_NAME" --limit 1000 --json name --jq '.[].name')
 fi
 
 # Function to check if a branch exists
 branch_exists() {
-    gh api repos/$ORG_NAME/$1/git/refs/heads/$2 >/dev/null 2>&1
+    gh api repos/$ORG_NAME/$1/git/ref/heads/$2 >/dev/null 2>&1
 }
 
 # Function to create a branch if it doesn't exist
 create_branch_if_missing() {
     local REPO=$1
     local BRANCH=$2
-    local DEFAULT_BRANCH=$(gh api repos/$ORG_NAME/$REPO --jq '.default_branch')
+    local DEFAULT_BRANCH
+
+    DEFAULT_BRANCH=$(gh api repos/$ORG_NAME/$REPO --jq '.default_branch')
 
     if ! branch_exists "$REPO" "$BRANCH"; then
         echo "Creating '$BRANCH' branch in $REPO..."
         gh api repos/$ORG_NAME/$REPO/git/refs --method POST --field ref=refs/heads/$BRANCH --field sha="$(gh api repos/$ORG_NAME/$REPO/git/refs/heads/$DEFAULT_BRANCH --jq '.object.sha')"
+        echo "'$BRANCH' branch created successfully in $REPO."
     else
         echo "'$BRANCH' branch already exists in $REPO."
     fi
@@ -75,7 +84,7 @@ EOF
 }
 
 # Process each repository
-for REPO in $REPOS; do
+for REPO in "${REPOS[@]}"; do
     echo "Processing repository: $REPO"
 
     # Ensure main, dev, and master branches exist
